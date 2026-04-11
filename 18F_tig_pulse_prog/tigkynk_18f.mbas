@@ -26,6 +26,7 @@ symbol KYN_OK     = PORTB.2
 symbol LOAD       = PORTC.0
 symbol TERM       = PORTC.6
 symbol SETING     = PORTD.7
+symbol ERR_LED    = PORTD.6
 
 '================= Kaynak sabitleri =================
 const START_AKIM   = 15
@@ -153,6 +154,7 @@ sub function mask(dim num as byte) as byte
 end sub
 '====================================================
 sub procedure interrupt()
+dim encoder_max as word
     if INTCON.RBIF = 1 then
         dummy = PORTB
 
@@ -164,7 +166,6 @@ sub procedure interrupt()
                         Inc(encoderValue)
                     end if
                 else
-                    dim encoder_max as word
                     encoder_max = 0
 
                     if set1 = 1 then encoder_max = 10  end if
@@ -447,7 +448,7 @@ sub function BASLATMA_VEYA_BLOK_IPTAL_VAR_MI() as byte
     result = 0
 
     if setting_mode <> 0 then
-        PORTD.6 = 1
+        ERR_LED = 1
         kaynak_izin = 0
         result = 1
         exit
@@ -455,7 +456,7 @@ sub function BASLATMA_VEYA_BLOK_IPTAL_VAR_MI() as byte
 
     if ikidort = 1 then
         if TETIK = 1 then
-            PORTD.7 = 1
+            SETING = 1
             kaynak_izin = 0
             result = 1
             exit
@@ -464,12 +465,9 @@ sub function BASLATMA_VEYA_BLOK_IPTAL_VAR_MI() as byte
 end sub
 '====================================================
 sub function ARK_DETECT_OKU() as byte
-dim adc_ort as word
+    akim_adc = ADC2_ORT_OKU()
 
-    adc_ort = ADC2_ORT_OKU()
-    akim_adc = adc_ort
-
-    if adc_ort > ark_esik then
+    if akim_adc > ark_esik then
         result = 1
     else
         result = 0
@@ -655,15 +653,7 @@ dim duty_fark as word
     baslangic_duty = AKIM_TO_DUTY(baslangic_akim)
     hedef = AKIM_TO_DUTY(hedef_akim_local)
 
-    if hedef <= baslangic_duty then
-        Pwm1_Set_Duty(hedef)
-        pid_cikis = hedef
-        pid_onceki_hata = 0
-        pid_integral = 0
-        exit
-    end if
-
-    if set2_value = 0 then
+    if (hedef <= baslangic_duty) or (set2_value = 0) then
         Pwm1_Set_Duty(hedef)
         pid_cikis = hedef
         pid_onceki_hata = 0
