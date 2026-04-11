@@ -14,7 +14,7 @@ program tig_kaynak_1
 
 symbol LIFT       = PORTA.0
 symbol HFTIG      = PORTA.1
-symbol ikidort    = PORTC.4
+symbol ikidort    = PORTD.5    ' PORTC.4 SPI1 SDI ile cakisiyordu — PORTD.5 bos pine tasindi
 symbol TETIK      = PORTE.0
 symbol GAS        = PORTE.1
 symbol HF         = PORTE.2
@@ -114,6 +114,8 @@ dim anti_stick_durum as byte
 dim anti_stick_timer as word
 dim kisa_devre_adc as word
 
+dim eeprom_dirty as byte   ' EEPROM yazma gereksinim bayragi
+
 dim set5_value as byte   ' frekans
 dim set6_value as byte   ' base ak�m
 dim set7_value as byte   ' duty %
@@ -125,32 +127,18 @@ dim pulse_period as word
 dim pulse_on_time as word
 dim pulse_off_time as word
 
+'================= Segment mask sabitleri =============
+' index: 0=$7E  1=$30  2=$6D  3=$79  4=$33
+'        5=$5B  6=$5F  7=$70  8=$7F  9=$7B  10=$00(hata)
+const DIGIT_MASK as byte[11] = ($7E, $30, $6D, $79, $33, $5B, $5F, $70, $7F, $7B, $00)
+
 '====================================================
 sub function mask(dim num as byte) as byte
-    select case num
-        case 0
-            result = $7E
-        case 1
-            result = $30
-        case 2
-            result = $6D
-        case 3
-            result = $79
-        case 4
-            result = $33
-        case 5
-            result = $5B
-        case 6
-            result = $5F
-        case 7
-            result = $70
-        case 8
-            result = $7F
-        case 9
-            result = $7B
-        case else
-            result = $00
-    end select
+    if num > 9 then
+        result = $00
+    else
+        result = DIGIT_MASK[num]
+    end if
 end sub
 '====================================================
 sub procedure interrupt()
@@ -1098,6 +1086,11 @@ dim mevcut_w as word
             Pwm1_Set_Duty(mevcut_w)
             pid_cikis = mevcut_w
             Delay_ms(10)
+            if kaynak_izin = 0 then    ' acil iptal
+                Pwm1_Set_Duty(0)
+                pid_cikis = 0
+                exit
+            end if
         next a
     else
         fark = duty_son - duty_ilk
@@ -1114,6 +1107,11 @@ dim mevcut_w as word
             Pwm1_Set_Duty(mevcut_w)
             pid_cikis = mevcut_w
             Delay_ms(10)
+            if kaynak_izin = 0 then    ' acil iptal
+                Pwm1_Set_Duty(0)
+                pid_cikis = 0
+                exit
+            end if
         next a
     end if
 
@@ -1132,6 +1130,9 @@ dim crater_duty as byte
 
     for c = 1 to CRATER_SURE
         Delay_ms(10)
+        if kaynak_izin = 0 then    ' acil iptal: kaynak durdurulduysa crater'dan cik
+            exit
+        end if
     next c
 end sub
 
@@ -1260,6 +1261,8 @@ sub procedure PARAMETRE_IN()
                      set8_value = encoderValue
             end select
 
+            eeprom_dirty = 1   ' parametre degisti — EEPROM yazma gerekiyor
+
             hesapla(encoderValue)
         end if
 
@@ -1288,7 +1291,10 @@ sub procedure PARAMETRE_IN()
 
                    Parametre_No_Goster(secilen_parametre)
                 else
-                    EEPROM_Kaydet()
+                    if eeprom_dirty = 1 then   ' sadece deger degistiyse yaz
+                        EEPROM_Kaydet()
+                        eeprom_dirty = 0
+                    end if
                     G_Segment_Animasyon()
 
                     Tum_Set_Flaglarini_Sifirla()
@@ -1388,7 +1394,7 @@ sub procedure KAYNAK_SURDUR()
         if kaynak_izin = 1 then
             if anti_stick_aktif = 0 then
                 Inc(pid_timer)
-                if pid_timer >= 4 then
+                if pid_timer >= 2 then    ' ~10ms PID dongusu (~100Hz): main dongu Delay_ms(5) x 2 = 10ms
                     pid_timer = 0
                     PID_HESAPLA()
                 end if
@@ -1565,8 +1571,8 @@ main:
 
     TRISA = %11111111
     TRISB = %00111111
-    TRISC = %01010000
-    TRISD = %10000000
+    TRISC = %01000000   ' RC6 giris (TERM), RC4 SPI SDI (SPI1_Init tarafindan ayarlanir)
+    TRISD = %10100000   ' PORTD.7 (SETING) ve PORTD.5 (ikidort) giris
     TRISE = %00000001
 
     CM1CON0 = 0
@@ -1581,10 +1587,11 @@ main:
     ADCON1 = 0
     ADCON2 = %10101010   ' �rnek: right justify, uygun Tad
 
-    ' AN2 = ak�m/PID/ark alg�lama
-    ' AN8 = k�sa devre alg�lama
-    ANSELH = 1
-    ANSEL  = 4
+    ' AN2 = akim/PID/ark algilama
+    ' AN8 = kisa devre algilama
+    ' AN5 (PORTE.0/TETIK) dijital — ANSEL.5 = 0
+    ANSELH = %00000001   ' AN8 analog (kisa devre algilama)
+    ANSEL  = %00000100   ' AN2 analog (akim olcumu); AN5 (RE0/TETIK) dijital
 '    ADCON1 = %00001111
 
     OSCCON = $70
@@ -1598,6 +1605,13 @@ main:
     GAS = 0
     HF = 0
 
+    ' Soft-start: once sarj rolesini cek (DC bara kondansatorleri sarj et)
+    ' NOT: Eger surucü aktif-LOW ise ROLE_SARJ = 0 ile cekili olur — devreye gore kontrol et
+    ROLE_SARJ = 1       ' sarj rolesi cek (aktif HIGH)
+    Delay_ms(500)       ' 500ms sarj suresi
+    ROLE_MAIN = 1       ' ana role cek (aktif HIGH)
+    Delay_ms(100)
+
     tetik_onceki = 1
     dortt_durum = 0
     kaynak_izin = 0
@@ -1605,6 +1619,7 @@ main:
     secilen_parametre = 0
     son_setting = 1
     kaynak_basladi = 0
+    eeprom_dirty = 0
 
     ark_var = 0
     ark_esik = 60
@@ -1655,9 +1670,13 @@ main:
         PARAMETRE_IN()
 
         if setting_mode = 0 then
-            hedef_akim = encoderValue
+            INTCON.GIE = 0
+            hedef_akim = encoderValue  ' encoderValue 16-bit — GIE kapali ile atomik oku
+            INTCON.GIE = 1
             TIG_BASLAT()
-            hesapla(encoderValue)
+            INTCON.GIE = 0
+            hesapla(encoderValue)      ' encoderValue okumasi atomik
+            INTCON.GIE = 1
         end if
 
         Delay_ms(5)
