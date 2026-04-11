@@ -12,10 +12,10 @@ program tig_kaynak_1
 ' D0 = G
 '====================================================
 
-symbol TETIK      = PORTD.0    ' PORTE.0 (AN5)'ten tasindi — analog cakisma yok
-symbol LIFT       = PORTD.2    ' PORTA.0'dan tasindi — analog cakisma yok
-symbol HFTIG      = PORTD.3    ' PORTA.1'den tasindi — analog cakisma yok
-symbol ikidort    = PORTD.5
+symbol LIFT       = PORTA.0
+symbol HFTIG      = PORTA.1
+symbol ikidort    = PORTC.4
+symbol TETIK      = PORTE.0
 symbol GAS        = PORTE.1
 symbol HF         = PORTE.2
 symbol IGBT_RST   = PORTC.1
@@ -392,6 +392,14 @@ dim duty_temp as longint
     duty_temp = duty_temp * 97
     duty_temp = duty_temp / 190
     duty_temp = duty_temp + 30
+
+    if duty_temp < 0 then
+        duty_temp = 0
+    end if
+
+    if duty_temp > 255 then
+        duty_temp = 255
+    end if
 
     result = duty_temp
 end sub
@@ -1589,9 +1597,9 @@ main:
 
     TRISA = %11111111
     TRISB = %00111111
-    TRISC = %01000000   ' RC6 giris (TERM), RC4 SPI SDI (SPI1_Init tarafindan ayarlanir)
-    TRISD = %10101101   ' RD7=SETING, RD5=ikidort, RD3=HFTIG, RD2=LIFT, RD0=TETIK girisler
-    TRISE = %00000000   ' RE0 artik kullanilmiyor, RE1=GAS cikis, RE2=HF cikis
+    TRISC = %01010000   ' RC4=ikidort giris, RC6=TERM giris
+    TRISD = %10000000   ' RD7=SETING giris
+    TRISE = %00000001   ' RE0=TETIK giris, RE1=GAS cikis, RE2=HF cikis
 
     CM1CON0 = 0
     CM2CON0 = 0
@@ -1607,9 +1615,8 @@ main:
 
     ' AN2 = akim/PID/ark algilama
     ' AN8 = kisa devre algilama
-    ' AN5 (PORTE.0/TETIK) dijital — ANSEL.5 = 0
-    ANSELH = %00000001   ' AN8 analog (kisa devre algilama)
-    ANSEL  = %00000100   ' AN2 analog (akim olcumu); AN5 (RE0/TETIK) dijital
+    ANSELH = %00000001  ' AN8 analog (kisa devre algilama)
+    ANSEL  = %00000100  ' AN2 analog (akim olcumu)
 '    ADCON1 = %00001111
 
     OSCCON = $70
