@@ -1,0 +1,1848 @@
+program tig_kaynak_1
+
+'====================================================
+' MAX7219 Segment bitleri
+' D7 = DP
+' D6 = A
+' D5 = B
+' D4 = C
+' D3 = D
+' D2 = E
+' D1 = F
+' D0 = G
+'====================================================
+
+symbol LIFT       = PORTA.0
+symbol HFTIG      = PORTA.1
+symbol ikidort    = PORTC.4
+symbol TETIK      = PORTE.0
+symbol GAS        = PORTE.1
+symbol HF         = PORTE.2
+symbol IGBT_RST   = PORTC.1
+symbol ROLE_SARJ  = PORTB.6
+symbol ROLE_MAIN  = PORTB.7
+symbol OUT_OK     = PORTB.3
+symbol KYN_OK     = PORTB.2
+symbol LOAD       = PORTC.0
+symbol TERM       = PORTC.6
+symbol SETING     = PORTD.7
+
+'================= Kaynak sabitleri =================
+const START_AKIM   = 15
+const CRATER_AKIM  = 10
+const CRATER_SURE  = 50     ' 50 x 10ms = 500ms
+
+'================= PI kontrol sabitleri =============
+const PID_KP_NUM    = 8
+const PID_KI_NUM    = 1
+const PID_DIV       = 8
+const PID_I_DIV     = 64
+const PID_MAX_STEP  = 3
+const PID_HATA_BANT = 40
+const PID_INTEGRAL_MAX = 3000
+
+const AKIM_ADC_MAX = 800    ' AN2 -> 200A karþýlýðý ADC deðeri
+
+'================= Lift TIG sabitleri ===============
+const LIFT_BASLANGIC_AKIM = 8
+const LIFT_TEMAS_ESIK     = 25
+const LIFT_BIRAK_ESIK     = 8
+const LIFT_ARK_ONAY_ESIK  = 20
+const LIFT_TIMEOUT        = 300    ' 300 x 10ms = 3 saniye
+
+'================= Anti-Stick / Kýsa Devre ==========
+' AN8 kýsa devre algýlama için kullanýlýr
+const KISA_DEVRE_ADC_ESIK   = 12
+const KISA_DEVRE_CIKIS_ESIK = 20
+
+' main döngüsü sonunda Delay_ms(5) olduðu için:
+' 1 sn   = 200 x 5ms
+' 2 sn   = 400 x 5ms
+' 500 ms = 100 x 5ms
+const KISA_DEVRE_KAPAT_SURE = 200
+const ANTI_STICK_BEKLE_SURE = 400
+const ANTI_STICK_DENE_SURE  = 100
+const ANTI_STICK_AKIM       = 10
+
+'================= Encoder ==========================
+dim EncoderA as sbit at PORTB.5
+dim EncoderB as sbit at PORTB.4
+
+'================= Genel deðiþkenler ================
+dim pid_hata as integer
+dim pid_onceki_hata as integer
+dim pid_turev as integer
+dim pid_cikis as integer
+dim olculen_akim as integer
+dim pid_integral as longint
+dim tetik_onceki as byte
+dim dortt_durum as byte
+dim kaynak_izin as byte
+dim ERR as byte
+dim prevA as byte
+dim encoderValue as integer
+dim hedef_akim as integer
+dim kisaDevre as integer
+dim dummy as byte
+dim igbt_err as integer
+dim sebekee_err as integer
+dim termik_err as integer
+dim HATA, SMP_ON as byte
+dim SEBEKE as word
+dim hata1 as byte
+dim kd as word
+dim j as byte
+dim i as word
+dim say, g as longword
+dim ko as word
+dim coll as word
+dim k, err_say as word
+dim kd_say as word
+dim disp_deger as integer
+dim an_oku, topla as word
+dim HATA_say, ortalama as byte
+dim temp_res as integer
+dim weld_akim as integer
+dim TEMPS as byte
+dim DATA1DG as byte
+dim DATA10DG as byte
+dim DATA100DG as byte
+dim kd_time as word
+dim step_value, start_value, hedef_value as integer
+
+dim set1, set1_value as byte
+dim set2, set2_value as byte
+dim set3, set3_value as byte
+dim set4, set4_value as byte
+dim set5 as byte
+dim set6 as byte
+dim set7 as byte
+dim set8 as byte
+
+dim setting_mode as byte
+dim secilen_parametre as byte
+dim son_setting as byte
+dim normal_encoder_value as integer
+
+dim kaynak_basladi as byte
+dim ramp_duty as byte
+dim hedef_duty as byte
+dim hf_start_yapildi as byte
+
+dim ark_var as byte
+dim ark_esik as word
+dim akim_adc as word
+dim ark_say as byte
+
+dim akim_filtreli as integer
+dim pid_timer as byte
+dim lift_temas_var as byte
+
+dim kisa_devre_say as word
+dim anti_stick_aktif as byte
+dim anti_stick_durum as byte
+dim anti_stick_timer as word
+dim kisa_devre_adc as word
+
+dim set5_value as byte   ' frekans
+dim set6_value as byte   ' base akým
+dim set7_value as byte   ' duty %
+dim set8_value as byte   ' pulse on/off
+
+dim pulse_timer as word
+dim pulse_state as byte
+dim pulse_period as word
+dim pulse_on_time as word
+dim pulse_off_time as word
+
+'====================================================
+sub function mask(dim num as byte) as byte
+    select case num
+        case 0
+            result = $7E
+        case 1
+            result = $30
+        case 2
+            result = $6D
+        case 3
+            result = $79
+        case 4
+            result = $33
+        case 5
+            result = $5B
+        case 6
+            result = $5F
+        case 7
+            result = $70
+        case 8
+            result = $7F
+        case 9
+            result = $7B
+        case else
+            result = $00
+    end select
+end sub
+'====================================================
+'sub procedure ADC_Ayar_AN2()
+'    ' PIC18F4520
+'    ' Vref = VDD/VSS
+'    ' AN0, AN1, AN2 analog
+'    ADCON1 = %00001100
+'    Delay_us(20)
+'end sub
+'====================================================
+'sub procedure ADC_Ayar_AN8()
+'    ' PIC18F4520
+'    ' Vref = VDD/VSS
+'    ' AN0..AN8 analog
+'    ADCON1 = %00000110
+'    Delay_us(20)
+'end sub
+
+'====================================================
+'sub procedure ADC_Ayar_Dijital()
+'    ' Tüm analog giriþler dijital
+'    ADCON1 = %00001111
+'    Delay_us(20)
+'end sub
+
+
+'====================================================
+sub procedure interrupt()
+    if INTCON.RBIF = 1 then
+        dummy = PORTB
+
+        if EncoderA <> prevA then
+            if EncoderA = EncoderB then
+
+                if (set1 = 0) and (set2 = 0) and (set3 = 0) and (set4 = 0) and (set5 = 0) and (set6 = 0) and (set7 = 0) and (set8 = 0) then
+                    if encoderValue < 200 then
+                        Inc(encoderValue)
+                    end if
+                else
+                    if set1 = 1 then
+                        if encoderValue < 10 then
+                            Inc(encoderValue)
+                        end if
+                    end if
+
+                    if set2 = 1 then
+                        if encoderValue < 20 then
+                            Inc(encoderValue)
+                        end if
+                    end if
+
+                    if set3 = 1 then
+                        if encoderValue < 20 then
+                            Inc(encoderValue)
+                        end if
+                    end if
+
+                    if set4 = 1 then
+                        if encoderValue < 20 then
+                            Inc(encoderValue)
+                        end if
+                    end if
+
+                    if set5 = 1 then
+                        if encoderValue < 20 then
+                            Inc(encoderValue)
+                        end if
+                    end if
+
+                    if set6 = 1 then
+                        if encoderValue < 100 then
+                            Inc(encoderValue)
+                        end if
+                    end if
+
+                    if set7 = 1 then
+                        if encoderValue < 100 then
+                            Inc(encoderValue)
+                        end if
+                    end if
+
+                    if set8 = 1 then
+                        if encoderValue < 1 then
+                            Inc(encoderValue)
+                        end if
+                    end if
+                end if
+
+            else
+
+                if (set1 = 0) and (set2 = 0) and (set3 = 0) and (set4 = 0) and (set5 = 0) and (set6 = 0) and (set7 = 0) and (set8 = 0) then
+                    if encoderValue > 10 then
+                        Dec(encoderValue)
+                    end if
+                else
+                    if encoderValue > 0 then
+                        Dec(encoderValue)
+                    end if
+                end if
+
+            end if
+
+            prevA = EncoderA
+        end if
+
+        INTCON.RBIF = 0
+    end if
+end sub
+
+'====================================================
+sub procedure SPI_Init_MAX7219()
+    LOAD = 1
+    SPI1_Init()
+end sub
+
+'====================================================
+sub procedure MAX7219_Send(dim address as byte, dim value as byte)
+    LOAD = 0
+    SPI1_Write(address)
+    Delay_us(100)
+    SPI1_Write(value)
+    Delay_us(100)
+    LOAD = 1
+end sub
+
+'====================================================
+sub procedure hesapla(dim num as integer)
+dim DGT3, DGT2, DGT1 as byte
+
+    DGT3 = (num / 100) mod 10
+    DGT3 = mask(DGT3)
+
+    DGT2 = (num / 10) mod 10
+    DGT2 = mask(DGT2)
+
+    DGT1 = num mod 10
+    DGT1 = mask(DGT1)
+
+    MAX7219_Send($01, DGT1)
+    MAX7219_Send($02, DGT2)
+    MAX7219_Send($03, DGT3)
+end sub
+
+'====================================================
+sub procedure MAX7219_Init()
+    MAX7219_Send($0C, $01)
+    MAX7219_Send($09, $00)
+    MAX7219_Send($0B, $02)
+    MAX7219_Send($0A, $0F)
+    MAX7219_Send($0F, $00)
+end sub
+
+'====================================================
+sub procedure Tum_Set_Flaglarini_Sifirla()
+    set1 = 0
+    set2 = 0
+    set3 = 0
+    set4 = 0
+    set5 = 0
+    set6 = 0
+    set7 = 0
+    set8 = 0
+end sub
+
+'====================================================
+sub procedure Parametre_Flag_Aktif(dim p as byte)
+    Tum_Set_Flaglarini_Sifirla()
+
+    select case p
+        case 1
+            set1 = 1
+        case 2
+            set2 = 1
+        case 3
+            set3 = 1
+        case 4
+            set4 = 1
+        case 5
+            set5 = 1
+        case 6
+            set6 = 1
+        case 7
+            set7 = 1
+        case 8
+            set8 = 1
+    end select
+end sub
+'====================================================
+sub procedure Parametre_No_Goster(dim p as byte)
+    Tum_Set_Flaglarini_Sifirla()
+    MAX7219_Send($03, mask(p))
+    MAX7219_Send($02, $00)
+    MAX7219_Send($01, $00)
+end sub
+
+'====================================================
+sub procedure EEPROM_YUKLE()
+
+    set1_value = EEPROM_Read($01)
+    set2_value = EEPROM_Read($02)
+    set3_value = EEPROM_Read($03)
+    set4_value = EEPROM_Read($04)
+    
+    set5_value = EEPROM_Read($05)
+    set6_value = EEPROM_Read($06)
+    set7_value = EEPROM_Read($07)
+    set8_value = EEPROM_Read($08)
+
+    if set1_value = 255 then
+        set1_value = 0
+    end if
+    if set2_value = 255 then
+        set2_value = 3
+    end if
+    if set3_value = 255 then
+        set3_value = 3
+    end if
+    if set4_value = 255 then
+        set4_value = 3
+    end if
+
+    if set1_value > 10 then
+        set1_value = 10
+    end if
+
+    if set2_value > 20 then
+        set2_value = 20
+    end if
+
+    if set3_value > 20 then
+        set3_value = 20
+    end if
+
+    if set4_value > 20 then
+        set4_value = 20
+    end if
+    
+    if set5_value = 255 then 
+       set5_value = 5 
+    end if   ' 5 Hz
+    if set6_value = 255 then 
+       set6_value = 50 
+    end if  ' base %
+    if set7_value = 255 then 
+       set7_value = 50 
+    end if  ' duty %
+    if set8_value = 255 then 
+       set8_value = 0 
+    end if   ' off
+    if set5_value > 20 then
+       set5_value = 20
+    end if
+
+    if set6_value > 100 then
+       set6_value = 100
+    end if
+
+    if set7_value > 100 then
+       set7_value = 100
+    end if
+
+    if set8_value > 1 then
+       set8_value = 0
+    end if
+
+end sub
+
+'====================================================
+sub procedure EEPROM_Kaydet()
+    EEPROM_Write($01, set1_value)
+    Delay_ms(20)
+    EEPROM_Write($02, set2_value)
+    Delay_ms(20)
+    EEPROM_Write($03, set3_value)
+    Delay_ms(20)
+    EEPROM_Write($04, set4_value)
+    Delay_ms(20)
+    EEPROM_Write($05, set5_value)
+    Delay_ms(20)
+    EEPROM_Write($06, set6_value)
+    Delay_ms(20)
+    EEPROM_Write($07, set7_value)
+    Delay_ms(20)
+    EEPROM_Write($08, set8_value)
+    Delay_ms(20)
+end sub
+
+'====================================================
+sub procedure G_Segment_Animasyon()
+    MAX7219_Send($03, $01)
+    MAX7219_Send($02, $00)
+    MAX7219_Send($01, $00)
+    Delay_ms(500)
+
+    MAX7219_Send($03, $00)
+    MAX7219_Send($02, $01)
+    MAX7219_Send($01, $00)
+    Delay_ms(500)
+
+    MAX7219_Send($03, $00)
+    MAX7219_Send($02, $00)
+    MAX7219_Send($01, $01)
+    Delay_ms(500)
+
+    MAX7219_Send($03, $00)
+    MAX7219_Send($02, $00)
+    MAX7219_Send($01, $00)
+end sub
+
+'====================================================
+sub function MUTLAK_INT(dim x as integer) as integer
+    if x < 0 then
+        result = -x
+    else
+        result = x
+    end if
+end sub
+
+'====================================================
+sub function AKIM_TO_DUTY(dim akim as integer) as byte
+dim duty_temp as longint
+
+    if akim <= 0 then
+        result = 0
+        exit
+    end if
+
+    if akim <= 10 then
+        result = 30
+        exit
+    end if
+
+    if akim >= 200 then
+        result = 127
+        exit
+    end if
+
+    duty_temp = akim - 10
+    duty_temp = duty_temp * 97
+    duty_temp = duty_temp / 190
+    duty_temp = duty_temp + 30
+
+    if duty_temp < 0 then
+        duty_temp = 0
+    end if
+
+    if duty_temp > 255 then
+        duty_temp = 255
+    end if
+
+    result = duty_temp
+end sub
+
+'====================================================
+sub function ADC2_ORT_OKU() as word
+dim adc_toplam as longword
+dim adc_ort as word
+dim s as byte
+dim dummy_adc as word
+
+'    ADC_Ayar_AN2()
+
+    dummy_adc = ADC_Read(2)
+    Delay_us(50)
+
+    adc_toplam = 0
+
+    for s = 1 to 4
+        adc_toplam = adc_toplam + ADC_Read(2)
+        Delay_us(50)
+    next s
+
+    adc_ort = adc_toplam / 4
+
+'    ADC_Ayar_Dijital()
+
+    result = adc_ort
+end sub
+
+'====================================================
+sub function ADC8_ORT_OKU() as word
+dim adc_toplam as longword
+dim adc_ort as word
+dim s as byte
+dim dummy_adc as word
+
+'    ADC_Ayar_AN8()
+
+    dummy_adc = ADC_Read(8)
+    Delay_us(50)
+
+    adc_toplam = 0
+
+    for s = 1 to 4
+        adc_toplam = adc_toplam + ADC_Read(8)
+        Delay_us(50)
+    next s
+
+    adc_ort = adc_toplam / 4
+    kisa_devre_adc = adc_ort
+
+'    ADC_Ayar_Dijital()
+
+    result = adc_ort
+end sub
+
+'====================================================
+sub function BASLATMA_VEYA_BLOK_IPTAL_VAR_MI() as byte
+    result = 0
+
+    if setting_mode <> 0 then
+        PORTD.6 = 1
+        kaynak_izin = 0
+        result = 1
+        exit
+    end if
+
+    if ikidort = 1 then
+        if TETIK = 1 then
+            PORTD.7 = 1
+            kaynak_izin = 0
+            result = 1
+            exit
+        end if
+    end if
+end sub
+'====================================================
+sub function ARK_DETECT_OKU() as byte
+dim adc_ort as word
+
+    adc_ort = ADC2_ORT_OKU()
+    akim_adc = adc_ort
+
+    if adc_ort > ark_esik then
+        result = 1
+    else
+        result = 0
+    end if
+end sub
+
+'====================================================
+sub function ADC_TO_AKIM(dim adc_deger as word) as integer
+dim akim_hesap as longword
+
+    if adc_deger >= AKIM_ADC_MAX then
+        result = 200
+    else
+        akim_hesap = adc_deger
+        akim_hesap = akim_hesap * 200
+        akim_hesap = akim_hesap / AKIM_ADC_MAX
+        result = akim_hesap
+    end if
+end sub
+
+'====================================================
+sub function AKIM_OKU() as integer
+dim adc_toplam as longword
+dim adc_ort as word
+dim s as byte
+dim dummy_adc as word
+
+'    ADC_Ayar_AN2()
+
+    dummy_adc = ADC_Read(2)
+    Delay_us(50)
+
+    adc_toplam = 0
+
+    for s = 1 to 8
+        adc_toplam = adc_toplam + ADC_Read(2)
+        Delay_us(50)
+    next s
+
+    adc_ort = adc_toplam / 8
+    akim_adc = adc_ort
+
+'    ADC_Ayar_Dijital()
+
+    result = ADC_TO_AKIM(adc_ort)
+end sub
+
+'====================================================
+sub function AKIM_OKU_FILTRELI() as integer
+dim yeni_akim as integer
+
+    yeni_akim = AKIM_OKU()
+
+    if akim_filtreli = 0 then
+        akim_filtreli = yeni_akim
+    else
+        akim_filtreli = ((akim_filtreli * 3) + yeni_akim) / 4
+    end if
+
+    result = akim_filtreli
+end sub
+
+'====================================================
+sub function KISA_DEVRE_VAR_MI() as byte
+dim adc_now as word
+
+    adc_now = ADC8_ORT_OKU()
+
+    if adc_now <= KISA_DEVRE_ADC_ESIK then
+        result = 1
+    else
+        result = 0
+    end if
+end sub
+
+'====================================================
+sub function KISA_DEVRE_KALKTI_MI() as byte
+dim adc_now as word
+
+    adc_now = ADC8_ORT_OKU()
+
+    if adc_now >= KISA_DEVRE_CIKIS_ESIK then
+        result = 1
+    else
+        result = 0
+    end if
+end sub
+
+'====================================================
+sub procedure PID_SIFIRLA()
+    pid_hata = 0
+    pid_onceki_hata = 0
+    pid_turev = 0
+    pid_cikis = 0
+    pid_integral = 0
+    akim_filtreli = 0
+    pid_timer = 0
+    kisa_devre_say = 0
+    anti_stick_aktif = 0
+    anti_stick_durum = 0
+    anti_stick_timer = 0
+end sub
+'====================================================
+sub function PULSE_AKIM_GET() as integer
+
+    if set8_value = 0 then
+        result = hedef_akim
+        exit
+    end if
+
+    if pulse_state = 1 then
+        result = hedef_akim   ' peak
+    else
+        result = (hedef_akim * set6_value) / 100   ' base
+    end if
+
+end sub
+
+'====================================================
+sub procedure PID_HESAPLA()
+dim duty_tmp as longint
+dim hedef_duty_local as integer
+dim fark as integer
+dim limitli_cikis as integer
+dim pulse_hedef_akim as integer
+
+    olculen_akim = AKIM_OKU_FILTRELI()
+
+    pulse_hedef_akim = PULSE_AKIM_GET()
+    pid_hata = pulse_hedef_akim - olculen_akim
+
+    if MUTLAK_INT(pid_hata) < PID_HATA_BANT then
+        pid_integral = pid_integral + pid_hata
+    end if
+
+    if pid_integral > PID_INTEGRAL_MAX then
+        pid_integral = PID_INTEGRAL_MAX
+    end if
+
+    if pid_integral < -PID_INTEGRAL_MAX then
+        pid_integral = -PID_INTEGRAL_MAX
+    end if
+
+    hedef_duty_local = AKIM_TO_DUTY(pulse_hedef_akim)
+
+    duty_tmp = hedef_duty_local
+    duty_tmp = duty_tmp + ((pid_hata * PID_KP_NUM) / PID_DIV)
+    duty_tmp = duty_tmp + ((pid_integral * PID_KI_NUM) / PID_I_DIV)
+
+    if duty_tmp < 0 then
+        duty_tmp = 0
+    end if
+
+    if duty_tmp > 255 then
+        duty_tmp = 255
+    end if
+
+    fark = duty_tmp - pid_cikis
+    limitli_cikis = duty_tmp
+
+    if fark > PID_MAX_STEP then
+        limitli_cikis = pid_cikis + PID_MAX_STEP
+    end if
+
+    if fark < -PID_MAX_STEP then
+        limitli_cikis = pid_cikis - PID_MAX_STEP
+    end if
+
+    if limitli_cikis < 0 then
+        limitli_cikis = 0
+    end if
+
+    if limitli_cikis > 255 then
+        limitli_cikis = 255
+    end if
+
+    pid_cikis = limitli_cikis
+    PWM1_Set_Duty(pid_cikis)
+
+    pid_onceki_hata = pid_hata
+end sub
+'====================================================
+sub procedure RAMP_UP_BASLAT(dim hedef_akim_local as integer)
+dim hedef as byte
+dim baslangic_akim as integer
+dim baslangic_duty as byte
+dim mevcut as byte
+dim toplam_adim as word
+dim a as word
+dim hesap_long as longword
+dim duty_fark as word
+
+    if hedef_akim_local <= START_AKIM then
+        baslangic_akim = hedef_akim_local
+    else
+        baslangic_akim = START_AKIM
+    end if
+
+    baslangic_duty = AKIM_TO_DUTY(baslangic_akim)
+    hedef = AKIM_TO_DUTY(hedef_akim_local)
+
+    if hedef <= baslangic_duty then
+        Pwm1_Set_Duty(hedef)
+        pid_cikis = hedef
+        pid_onceki_hata = 0
+        pid_integral = 0
+        exit
+    end if
+
+    if set2_value = 0 then
+        Pwm1_Set_Duty(hedef)
+        pid_cikis = hedef
+        pid_onceki_hata = 0
+        pid_integral = 0
+        exit
+    end if
+
+    Pwm1_Set_Duty(baslangic_duty)
+    pid_cikis = baslangic_duty
+
+    toplam_adim = set2_value * 100
+    if toplam_adim = 0 then
+        toplam_adim = 1
+    end if
+
+    duty_fark = hedef - baslangic_duty
+
+    for a = 1 to toplam_adim
+
+        if BASLATMA_VEYA_BLOK_IPTAL_VAR_MI() = 1 then
+            Pwm1_Set_Duty(0)
+            pid_cikis = 0
+            Pwm1_Stop()
+            HF = 0
+            GAS = 0
+            kaynak_basladi = 0
+            exit
+        end if
+
+        hesap_long = duty_fark
+        hesap_long = hesap_long * a
+        mevcut = baslangic_duty + (hesap_long / toplam_adim)
+
+        if mevcut > hedef then
+            mevcut = hedef
+        end if
+
+        Pwm1_Set_Duty(mevcut)
+        pid_cikis = mevcut
+        Delay_ms(10)
+    next a
+
+    Pwm1_Set_Duty(hedef)
+    pid_cikis = hedef
+    pid_onceki_hata = 0
+    pid_integral = 0
+end sub
+
+'====================================================
+sub procedure ARK_BEKLE_VE_RAMP_BASLAT()
+dim baslangic_akim as integer
+dim baslangic_duty as byte
+dim ark_dogrulama as byte
+dim ark_bekle as byte
+dim hf_timeout as word
+
+    if hedef_akim <= START_AKIM then
+        baslangic_akim = hedef_akim
+    else
+        baslangic_akim = START_AKIM
+    end if
+
+    baslangic_duty = AKIM_TO_DUTY(baslangic_akim)
+
+    Pwm1_Set_Duty(baslangic_duty)
+    pid_cikis = baslangic_duty
+
+    ark_var = 0
+    ark_say = 0
+    ark_dogrulama = 0
+    ark_bekle = 1
+    hf_timeout = 0
+
+    while (kaynak_izin = 1) and (ark_bekle = 1)
+
+        if BASLATMA_VEYA_BLOK_IPTAL_VAR_MI() = 1 then
+            Pwm1_Set_Duty(0)
+            pid_cikis = 0
+            Pwm1_Stop()
+            HF = 0
+            GAS = 0
+            ark_var = 0
+            ark_say = 0
+            kaynak_basladi = 0
+            exit
+        end if
+
+        if hf_timeout < 300 then
+            Inc(hf_timeout)
+        end if
+
+        if ARK_DETECT_OKU() = 1 then
+            if ark_dogrulama < 20 then
+                Inc(ark_dogrulama)
+            end if
+        else
+            ark_dogrulama = 0
+        end if
+
+        if ark_dogrulama >= 20 then
+            ark_var = 1
+            HF = 0
+            ark_bekle = 0
+        end if
+
+        if hf_timeout >= 300 then
+            HF = 0
+            Pwm1_Set_Duty(0)
+            pid_cikis = 0
+            Pwm1_Stop()
+            GAS = 0
+            ark_var = 0
+            ark_say = 0
+            kaynak_basladi = 0
+            kaynak_izin = 0
+            exit
+        end if
+
+        Delay_ms(10)
+    wend
+
+    if kaynak_izin = 0 then
+        Pwm1_Set_Duty(0)
+        pid_cikis = 0
+        Pwm1_Stop()
+        HF = 0
+        GAS = 0
+        ark_var = 0
+        ark_say = 0
+        kaynak_basladi = 0
+        exit
+    end if
+
+    if ark_var = 1 then
+        RAMP_UP_BASLAT(hedef_akim)
+    end if
+end sub
+
+'====================================================
+sub procedure LIFT_TIG_BEKLE_VE_RAMP_BASLAT()
+dim lift_duty as byte
+dim adc_now as word
+dim temas_say as byte
+dim birak_say as byte
+dim ark_say_local as byte
+dim timeout_say as word
+dim adim1_tamam as byte
+dim adim2_tamam as byte
+dim adim3_tamam as byte
+
+    lift_duty = AKIM_TO_DUTY(LIFT_BASLANGIC_AKIM)
+
+    Pwm1_Set_Duty(lift_duty)
+    pid_cikis = lift_duty
+
+    lift_temas_var = 0
+    temas_say = 0
+    birak_say = 0
+    ark_say_local = 0
+    timeout_say = 0
+    ark_var = 0
+
+    adim1_tamam = 0
+    adim2_tamam = 0
+    adim3_tamam = 0
+
+    '---- 1) Temas bekle ----
+    while kaynak_izin = 1
+
+        if BASLATMA_VEYA_BLOK_IPTAL_VAR_MI() = 1 then
+            Pwm1_Set_Duty(0)
+            pid_cikis = 0
+            Pwm1_Stop()
+            GAS = 0
+            HF = 0
+            kaynak_basladi = 0
+            exit
+        end if
+
+        adc_now = ADC2_ORT_OKU()
+
+        if adc_now > LIFT_TEMAS_ESIK then
+            if temas_say < 10 then
+                Inc(temas_say)
+            end if
+        else
+            temas_say = 0
+        end if
+
+        if temas_say >= 3 then
+            lift_temas_var = 1
+            adim1_tamam = 1
+            break
+        end if
+
+        Inc(timeout_say)
+        if timeout_say >= LIFT_TIMEOUT then
+            Pwm1_Set_Duty(0)
+            pid_cikis = 0
+            Pwm1_Stop()
+            GAS = 0
+            HF = 0
+            kaynak_basladi = 0
+            kaynak_izin = 0
+            exit
+        end if
+
+        Delay_ms(10)
+    wend
+
+    if adim1_tamam = 0 then
+        exit
+    end if
+
+    if kaynak_izin = 0 then
+        exit
+    end if
+
+    '---- 2) Tungsten kaldýrýlmasýný bekle ----
+    timeout_say = 0
+
+    while kaynak_izin = 1
+
+        if BASLATMA_VEYA_BLOK_IPTAL_VAR_MI() = 1 then
+            Pwm1_Set_Duty(0)
+            pid_cikis = 0
+            Pwm1_Stop()
+            GAS = 0
+            HF = 0
+            kaynak_basladi = 0
+            exit
+        end if
+
+        adc_now = ADC2_ORT_OKU()
+
+        if adc_now < LIFT_BIRAK_ESIK then
+            if birak_say < 10 then
+                Inc(birak_say)
+            end if
+        else
+            birak_say = 0
+        end if
+
+        if birak_say >= 3 then
+            adim2_tamam = 1
+            break
+        end if
+
+        Inc(timeout_say)
+        if timeout_say >= LIFT_TIMEOUT then
+            Pwm1_Set_Duty(0)
+            pid_cikis = 0
+            Pwm1_Stop()
+            GAS = 0
+            HF = 0
+            kaynak_basladi = 0
+            kaynak_izin = 0
+            exit
+        end if
+
+        Delay_ms(10)
+    wend
+
+    if adim2_tamam = 0 then
+        exit
+    end if
+
+    if kaynak_izin = 0 then
+        exit
+    end if
+
+    '---- 3) Ark oluþumunu doðrula ----
+    timeout_say = 0
+
+    while kaynak_izin = 1
+
+        if BASLATMA_VEYA_BLOK_IPTAL_VAR_MI() = 1 then
+            Pwm1_Set_Duty(0)
+            pid_cikis = 0
+            Pwm1_Stop()
+            GAS = 0
+            HF = 0
+            kaynak_basladi = 0
+            exit
+        end if
+
+        adc_now = ADC2_ORT_OKU()
+
+        if adc_now > LIFT_ARK_ONAY_ESIK then
+            if ark_say_local < 20 then
+                Inc(ark_say_local)
+            end if
+        else
+            ark_say_local = 0
+        end if
+
+        if ark_say_local >= 5 then
+            ark_var = 1
+            adim3_tamam = 1
+            break
+        end if
+
+        Inc(timeout_say)
+        if timeout_say >= LIFT_TIMEOUT then
+            Pwm1_Set_Duty(0)
+            pid_cikis = 0
+            Pwm1_Stop()
+            GAS = 0
+            HF = 0
+            kaynak_basladi = 0
+            kaynak_izin = 0
+            exit
+        end if
+
+        Delay_ms(10)
+    wend
+
+    if adim3_tamam = 0 then
+        exit
+    end if
+
+    if kaynak_izin = 0 then
+        exit
+    end if
+
+    if ark_var = 1 then
+        RAMP_UP_BASLAT(hedef_akim)
+    end if
+end sub
+'====================================================
+sub procedure ANTI_STICK_DURUM_MAKINESI()
+dim anti_duty as byte
+
+    anti_duty = AKIM_TO_DUTY(ANTI_STICK_AKIM)
+
+    ' durum 0 = normal çalýþma
+    if anti_stick_aktif = 0 then
+
+        if KISA_DEVRE_VAR_MI() = 1 then
+            if kisa_devre_say < KISA_DEVRE_KAPAT_SURE then
+                Inc(kisa_devre_say)
+            end if
+        else
+            kisa_devre_say = 0
+        end if
+
+        ' kýsa devre 1 saniye boyunca devam ettiyse kapat
+        if kisa_devre_say >= KISA_DEVRE_KAPAT_SURE then
+            anti_stick_aktif = 1
+            anti_stick_durum = 1
+            anti_stick_timer = 0
+            kisa_devre_say = 0
+
+            HF = 0
+            Pwm1_Set_Duty(0)
+            pid_cikis = 0
+            pid_integral = 0
+            pid_onceki_hata = 0
+        end if
+
+        exit
+    end if
+
+    ' anti-stick aktifken kýsa devre kalktýysa normale dön
+    if KISA_DEVRE_KALKTI_MI() = 1 then
+        anti_stick_aktif = 0
+        anti_stick_durum = 0
+        anti_stick_timer = 0
+        kisa_devre_say = 0
+        pid_integral = 0
+        pid_onceki_hata = 0
+        exit
+    end if
+
+    ' durum 1 = PWM kapalý, 2 saniye bekle
+    if anti_stick_durum = 1 then
+        if anti_stick_timer < ANTI_STICK_BEKLE_SURE then
+            Inc(anti_stick_timer)
+        else
+            anti_stick_timer = 0
+            anti_stick_durum = 2
+            Pwm1_Set_Duty(anti_duty)
+            pid_cikis = anti_duty
+        end if
+        exit
+    end if
+
+    ' durum 2 = PWM 10A açýk, 500ms dene
+    if anti_stick_durum = 2 then
+        if anti_stick_timer < ANTI_STICK_DENE_SURE then
+            Inc(anti_stick_timer)
+        else
+            anti_stick_timer = 0
+
+            if KISA_DEVRE_VAR_MI() = 1 then
+                Pwm1_Set_Duty(0)
+                pid_cikis = 0
+                anti_stick_durum = 1
+            else
+                anti_stick_aktif = 0
+                anti_stick_durum = 0
+                kisa_devre_say = 0
+                pid_integral = 0
+                pid_onceki_hata = 0
+            end if
+        end if
+        exit
+    end if
+end sub
+
+'====================================================
+sub procedure DUTY_RAMP(dim duty_ilk as byte, dim duty_son as byte, dim toplam_adim as word)
+dim a as word
+dim fark as word
+dim hesap_long as longword
+dim mevcut_w as word
+
+    if toplam_adim = 0 then
+        Pwm1_Set_Duty(duty_son)
+        pid_cikis = duty_son
+        exit
+    end if
+
+    if duty_ilk = duty_son then
+        Pwm1_Set_Duty(duty_son)
+        pid_cikis = duty_son
+        exit
+    end if
+
+    if duty_ilk > duty_son then
+        fark = duty_ilk - duty_son
+
+        for a = 1 to toplam_adim
+            hesap_long = fark
+            hesap_long = hesap_long * a
+            mevcut_w = duty_ilk - (hesap_long / toplam_adim)
+
+            if mevcut_w < duty_son then
+                mevcut_w = duty_son
+            end if
+
+            Pwm1_Set_Duty(mevcut_w)
+            pid_cikis = mevcut_w
+            Delay_ms(10)
+        next a
+    else
+        fark = duty_son - duty_ilk
+
+        for a = 1 to toplam_adim
+            hesap_long = fark
+            hesap_long = hesap_long * a
+            mevcut_w = duty_ilk + (hesap_long / toplam_adim)
+
+            if mevcut_w > duty_son then
+                mevcut_w = duty_son
+            end if
+
+            Pwm1_Set_Duty(mevcut_w)
+            pid_cikis = mevcut_w
+            Delay_ms(10)
+        next a
+    end if
+
+    Pwm1_Set_Duty(duty_son)
+    pid_cikis = duty_son
+end sub
+
+'====================================================
+sub procedure CRATER_FILL_BASLAT()
+dim c as byte
+dim crater_duty as byte
+
+    crater_duty = AKIM_TO_DUTY(CRATER_AKIM)
+    Pwm1_Set_Duty(crater_duty)
+    pid_cikis = crater_duty
+
+    for c = 1 to CRATER_SURE
+        Delay_ms(10)
+    next c
+end sub
+
+'====================================================
+sub procedure BITIRME_RAMP_VE_CRATER()
+dim mevcut_duty as byte
+dim crater_duty as byte
+dim yarim_adim as word
+
+    mevcut_duty = pid_cikis
+    crater_duty = AKIM_TO_DUTY(CRATER_AKIM)
+
+    yarim_adim = set3_value * 50
+
+    if set3_value = 0 then
+        if mevcut_duty > crater_duty then
+            Pwm1_Set_Duty(crater_duty)
+            pid_cikis = crater_duty
+        end if
+        CRATER_FILL_BASLAT()
+        Pwm1_Set_Duty(0)
+        pid_cikis = 0
+        exit
+    end if
+
+    if mevcut_duty > crater_duty then
+        DUTY_RAMP(mevcut_duty, crater_duty, yarim_adim)
+    else
+        Pwm1_Set_Duty(mevcut_duty)
+        pid_cikis = mevcut_duty
+    end if
+
+    CRATER_FILL_BASLAT()
+    DUTY_RAMP(pid_cikis, 0, yarim_adim)
+end sub
+
+'====================================================
+sub procedure SON_GAZ_BASLAT()
+dim sg_say as byte
+dim t as byte
+
+    GAS = 1
+
+    if set4_value = 0 then
+        GAS = 0
+        exit
+    end if
+
+    for sg_say = 1 to set4_value
+        for t = 1 to 100
+            Delay_ms(10)
+        next t
+    next sg_say
+
+    GAS = 0
+end sub
+
+'====================================================
+sub procedure PARAMETRE_IN()
+
+    if setting_mode = 0 then
+        if (son_setting = 1) and (SETING = 0) then
+            Delay_ms(25)
+            if SETING = 0 then
+                setting_mode = 1
+                secilen_parametre = 1
+                normal_encoder_value = encoderValue
+                encoderValue = set1_value
+                son_setting = 0
+                Parametre_No_Goster(1)
+                exit
+            end if
+        end if
+    end if
+
+    if setting_mode = 1 then
+
+        if SETING = 0 then
+            Parametre_No_Goster(secilen_parametre)
+        else
+            Parametre_Flag_Aktif(secilen_parametre)
+
+            select case secilen_parametre
+                case 1
+                    if encoderValue > 10 then
+                        encoderValue = 10
+                    end if
+                    set1_value = encoderValue
+
+                case 2
+                    if encoderValue > 20 then
+                        encoderValue = 20
+                    end if
+                    set2_value = encoderValue
+
+                case 3
+                    if encoderValue > 20 then
+                        encoderValue = 20
+                    end if
+                    set3_value = encoderValue
+
+                case 4
+                    if encoderValue > 20 then
+                        encoderValue = 20
+                    end if
+                    set4_value = encoderValue
+                case 5
+                     if encoderValue > 20 then 
+                        encoderValue = 20 
+                     end if
+                     set5_value = encoderValue
+                case 6
+                     if encoderValue > 100 then 
+                        encoderValue = 100 
+                     end if
+                     set6_value = encoderValue
+                case 7
+                     if encoderValue > 100 then 
+                        encoderValue = 100 
+                     end if
+                     set7_value = encoderValue
+                case 8
+                     if encoderValue > 1 then 
+                        encoderValue = 1 
+                     end if
+                     set8_value = encoderValue
+            end select
+
+            hesapla(encoderValue)
+        end if
+
+        if (son_setting = 1) and (SETING = 0) then
+            Delay_ms(25)
+            if SETING = 0 then
+                if secilen_parametre < 8 then
+                   Inc(secilen_parametre)
+
+                   select case secilen_parametre
+                   case 2
+                   encoderValue = set2_value
+                   case 3
+                   encoderValue = set3_value
+                   case 4
+                   encoderValue = set4_value
+                   case 5
+                   encoderValue = set5_value
+                   case 6
+                   encoderValue = set6_value
+                   case 7
+                   encoderValue = set7_value
+                   case 8
+                   encoderValue = set8_value
+                   end select
+
+                   Parametre_No_Goster(secilen_parametre)
+                else
+                    EEPROM_Kaydet()
+                    G_Segment_Animasyon()
+
+                    Tum_Set_Flaglarini_Sifirla()
+                    setting_mode = 0
+                    secilen_parametre = 0
+                    encoderValue = normal_encoder_value
+                    disp_deger = encoderValue
+                    hesapla(encoderValue)
+                end if
+            end if
+        end if
+    end if
+
+    son_setting = SETING
+end sub
+'====================================================
+
+sub procedure PULSE_HESAPLA()
+
+    if set5_value = 0 then
+        pulse_period = 100
+    else
+        pulse_period = 1000 / set5_value
+    end if
+
+    if pulse_period = 0 then
+        pulse_period = 1
+    end if
+
+    pulse_on_time  = (pulse_period * set7_value) / 100
+    pulse_off_time = pulse_period - pulse_on_time
+
+    if pulse_on_time = 0 then
+        pulse_on_time = 1
+    end if
+
+    if pulse_off_time = 0 then
+        pulse_off_time = 1
+    end if
+
+end sub
+
+'====================================================
+sub procedure PULSE_ISLET()
+
+    if set8_value = 0 then
+        pulse_state = 1
+        pulse_timer = 0
+        exit
+    end if
+
+    Inc(pulse_timer)
+
+    if pulse_state = 1 then
+        if pulse_timer >= pulse_on_time then
+            pulse_timer = 0
+            pulse_state = 0
+        end if
+    else
+        if pulse_timer >= pulse_off_time then
+            pulse_timer = 0
+            pulse_state = 1
+        end if
+    end if
+
+end sub
+'====================================================
+
+'====================================================
+sub procedure KAYNAK_BITIR_SEKANS()
+    if kaynak_basladi = 1 then
+        HF = 0
+        BITIRME_RAMP_VE_CRATER()
+        Pwm1_Stop()
+        SON_GAZ_BASLAT()
+    else
+        HF = 0
+        GAS = 0
+    end if
+
+    ark_var = 0
+    ark_say = 0
+    kaynak_basladi = 0
+    kaynak_izin = 0
+    PID_SIFIRLA()
+end sub
+
+'====================================================
+sub procedure KAYNAK_SURDUR()
+
+
+    if kaynak_basladi = 1 then
+        HF = 0
+        PULSE_ISLET()
+        
+        ANTI_STICK_DURUM_MAKINESI()
+
+        if kaynak_izin = 1 then
+            if anti_stick_aktif = 0 then
+                Inc(pid_timer)
+                if pid_timer >= 4 then
+                    pid_timer = 0
+                    PID_HESAPLA()
+                end if
+            end if
+        end if
+    end if
+
+end sub
+
+'====================================================
+sub procedure KAYNAK_BASLAT_SEKANS()
+dim pg_say as byte
+dim t as byte
+
+    PID_SIFIRLA()
+    kisa_devre_say = 0
+    anti_stick_aktif = 0
+    anti_stick_durum = 0
+    anti_stick_timer = 0
+    kisa_devre_adc = 0
+    pulse_timer = 0
+    pulse_state = 1
+    PULSE_HESAPLA()
+
+    if kaynak_basladi <> 0 then
+        exit
+    end if
+
+    GAS = 1
+    ark_var = 0
+    ark_say = 0
+    lift_temas_var = 0
+
+    if set1_value > 0 then
+        for pg_say = 1 to set1_value
+            for t = 1 to 100
+                Delay_ms(10)
+
+                if BASLATMA_VEYA_BLOK_IPTAL_VAR_MI() = 1 then
+                    GAS = 0
+                    HF = 0
+                    ark_var = 0
+                    ark_say = 0
+                    Pwm1_Set_Duty(0)
+                    pid_cikis = 0
+                    Pwm1_Stop()
+                    kaynak_basladi = 0
+                    exit
+                end if
+            next t
+        next pg_say
+    end if
+
+    if kaynak_izin = 0 then
+        GAS = 0
+        HF = 0
+        Pwm1_Set_Duty(0)
+        pid_cikis = 0
+        Pwm1_Stop()
+        kaynak_basladi = 0
+        exit
+    end if
+
+    Pwm1_Start()
+
+    '------------------------------------------------
+    ' PWM açýlýnca ilk iþ kýsa devre kontrolü yap
+    ' kýsa devre varsa HF açma
+    '------------------------------------------------
+    if KISA_DEVRE_VAR_MI() = 1 then
+        HF = 0
+        Pwm1_Set_Duty(0)
+        pid_cikis = 0
+        Pwm1_Stop()
+        GAS = 0
+        ark_var = 0
+        ark_say = 0
+        kaynak_basladi = 0
+        kaynak_izin = 0
+        exit
+    end if
+
+    if HFTIG = 0 then
+        HF = 1
+        Delay_ms(100)
+        ARK_BEKLE_VE_RAMP_BASLAT()
+    else
+        HF = 0
+        LIFT_TIG_BEKLE_VE_RAMP_BASLAT()
+    end if
+
+    if (kaynak_izin = 1) and (ark_var = 1) then
+        kaynak_basladi = 1
+    else
+        Pwm1_Stop()
+        HF = 0
+        GAS = 0
+        ark_var = 0
+        ark_say = 0
+        kaynak_basladi = 0
+        kaynak_izin = 0
+    end if
+end sub
+'====================================================
+sub procedure TIG_BASLAT()
+
+    if setting_mode <> 0 then
+        exit
+    end if
+
+    ' ikidort = 1 -> 2T
+    ' ikidort = 0 -> 4T
+
+    if ikidort = 1 then
+        if TETIK = 0 then
+            kaynak_izin = 1
+
+            if kaynak_basladi = 0 then
+                KAYNAK_BASLAT_SEKANS()
+            else
+                KAYNAK_SURDUR()
+            end if
+        else
+            kaynak_izin = 0
+            KAYNAK_BITIR_SEKANS()
+        end if
+
+    else
+        select case dortt_durum
+
+            case 0
+                if (tetik_onceki = 1) and (TETIK = 0) then
+                    dortt_durum = 1
+                end if
+
+            case 1
+                if (tetik_onceki = 0) and (TETIK = 1) then
+                    kaynak_izin = 1
+                    KAYNAK_BASLAT_SEKANS()
+
+                    if kaynak_basladi = 1 then
+                        dortt_durum = 2
+                    else
+                        dortt_durum = 0
+                        kaynak_izin = 0
+                    end if
+                end if
+
+            case 2
+                KAYNAK_SURDUR()
+
+                if (tetik_onceki = 1) and (TETIK = 0) then
+                    dortt_durum = 3
+                end if
+
+            case 3
+                KAYNAK_SURDUR()
+
+                if (tetik_onceki = 0) and (TETIK = 1) then
+                    kaynak_izin = 0
+                    KAYNAK_BITIR_SEKANS()
+                    dortt_durum = 0
+                end if
+
+        end select
+    end if
+
+    tetik_onceki = TETIK
+end sub
+
+'====================================================
+main:
+
+
+    TRISA = %11111111
+    TRISB = %00111111
+    TRISC = %01010000
+    TRISD = %10000000
+    TRISE = %00000001
+
+    CM1CON0 = 0
+    CM2CON0 = 0
+    PORTA = 0
+    PORTB = 0
+    PORTC = 0
+    PORTD = 0
+    PORTE = 0
+    
+    ADCON0 = 0
+    ADCON1 = 0
+    ADCON2 = %10101010   ' örnek: right justify, uygun Tad
+
+    ' AN2 = akým/PID/ark algýlama
+    ' AN8 = kýsa devre algýlama
+    ANSELH = 1
+    ANSEL  = 4
+'    ADCON1 = %00001111
+
+    OSCCON = $70
+
+    Pwm1_Init(8000)
+    Pwm1_Set_Duty(30)
+    Pwm1_Stop()
+
+    ROLE_MAIN = 0
+    ROLE_SARJ = 0
+    GAS = 0
+    HF = 0
+
+    kd_say = 0
+    HATA_say = 0
+    HATA = 0
+    ERR = 0
+
+    tetik_onceki = 1
+    dortt_durum = 0
+    kaynak_izin = 0
+    setting_mode = 0
+    secilen_parametre = 0
+    son_setting = 1
+    kaynak_basladi = 0
+    ramp_duty = 0
+    hedef_duty = 0
+    hf_start_yapildi = 0
+
+    ark_var = 0
+    ark_esik = 60
+    akim_adc = 0
+    ark_say = 0
+
+    pid_hata = 0
+    pid_onceki_hata = 0
+    pid_turev = 0
+    pid_cikis = 0
+    olculen_akim = 0
+    pid_integral = 0
+    akim_filtreli = 0
+    pid_timer = 0
+    lift_temas_var = 0
+
+    kisa_devre_say = 0
+    anti_stick_aktif = 0
+    anti_stick_durum = 0
+    anti_stick_timer = 0
+    kisa_devre_adc = 0
+
+    Delay_ms(100)
+
+    SPI_Init_MAX7219()
+    Delay_ms(100)
+    MAX7219_Init()
+    Delay_ms(100)
+
+    IOCB = $30
+    prevA = EncoderA
+    encoderValue = 100
+    hedef_akim = 100
+    normal_encoder_value = 100
+
+    dummy = PORTB
+    INTCON.RBIF = 0
+    INTCON.RBIE = 1
+    INTCON.GIE = 1
+    
+    INTCON2.RBPU = 0
+    WPUB.4 = 1
+    WPUB.5 = 1
+
+    EEPROM_YUKLE()
+
+    while TRUE
+
+        PARAMETRE_IN()
+
+        if setting_mode = 0 then
+            hedef_akim = encoderValue
+            TIG_BASLAT()
+            disp_deger = encoderValue
+            hesapla(encoderValue)
+        end if
+
+        Delay_ms(5)
+    wend
+
+end.

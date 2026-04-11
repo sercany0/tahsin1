@@ -1,0 +1,25 @@
+0	1	mBPic.exe -MSF -DBG -pP18F46K20 -Y -DL -O11111114 -fo16 -N"D:\tahsin yedekler\tig kaynak\pic18f-tig-kynk\18f46K20\18F_tig_pulse_prog\tigkynk_18f_pulse.mbppi" -SP"C:\Users\Public\Documents\Mikroelektronika\mikroBasic PRO for PIC\Defs\" -SP"C:\Users\Public\Documents\Mikroelektronika\mikroBasic PRO for PIC\uses\P18\" -SP"D:\tahsin yedekler\tig kaynak\pic18f-tig-kynk\18f46K20\18F_tig_pulse_prog\" "__Lib_Math.mcl" "__Lib_MathDouble.mcl" "__Lib_System.mcl" "__Lib_Delays.mcl" "__Lib_ADC_A_D.mcl" "__Lib_EEPROM_1024.mcl" "__Lib_PWM_c21.mcl" "__Lib_SPI_c345.mcl" "tigkynk_18f.mbas"	 
+diagnostics: 0	155	Available RAM: 3915 [bytes], Available ROM: 65536 [bytes]	 
+diagnostics: 0	133	Compilation Started	D:\tahsin yedekler\tig kaynak\pic18f-tig-kynk\18f46K20\18F_tig_pulse_prog\tigkynk_18f.mbas
+hint: 1	1015	Hint: Compiling unit "D:\tahsin yedekler\tig kaynak\pic18f-tig-kynk\18f46K20\18F_tig_pulse_prog\tigkynk_18f.mbas"	tigkynk_18f.mbas
+hint: 211	1021	Hint: interrupt handler (interrupt at 0x0008)	tigkynk_18f.mbas
+hint: 311	1011	Hint: Variable "DGT1" has been eliminated by optimizer	tigkynk_18f.mbas
+hint: 540	1011	Hint: Variable "adc_ort" has been eliminated by optimizer	tigkynk_18f.mbas
+hint: 542	1011	Hint: Variable "dummy_adc" has been eliminated by optimizer	tigkynk_18f.mbas
+hint: 566	1011	Hint: Variable "adc_ort" has been eliminated by optimizer	tigkynk_18f.mbas
+hint: 568	1011	Hint: Variable "dummy_adc" has been eliminated by optimizer	tigkynk_18f.mbas
+hint: 612	1011	Hint: Variable "adc_ort" has been eliminated by optimizer	tigkynk_18f.mbas
+hint: 641	1011	Hint: Variable "adc_ort" has been eliminated by optimizer	tigkynk_18f.mbas
+hint: 643	1011	Hint: Variable "dummy_adc" has been eliminated by optimizer	tigkynk_18f.mbas
+hint: 682	1011	Hint: Variable "adc_now" has been eliminated by optimizer	tigkynk_18f.mbas
+hint: 695	1011	Hint: Variable "adc_now" has been eliminated by optimizer	tigkynk_18f.mbas
+hint: 969	1011	Hint: Variable "adc_now" has been eliminated by optimizer	tigkynk_18f.mbas
+hint: 1848	1010	Hint: Unit "tigkynk_18f.mbas" has been recompiled	tigkynk_18f.mbas
+diagnostics: 0	134	Compiled Successfully	D:\tahsin yedekler\tig kaynak\pic18f-tig-kynk\18f46K20\18F_tig_pulse_prog\tigkynk_18f.mbas
+diagnostics: 0	139	All files Compiled in 172 ms	 
+hint: 0	1144	Used RAM (bytes): 146 (4%)  Free RAM (bytes): 3769 (96%)	Used RAM (bytes): 146 (4%)  Free RAM (bytes): 3769 (96%)
+hint: 0	1144	Used ROM (bytes): 10880 (17%)  Free ROM (bytes): 54656 (83%)	Used ROM (bytes): 10880 (17%)  Free ROM (bytes): 54656 (83%)
+diagnostics: 0	145	Project Linked Successfully	tigkynk_18f_pulse.mbppi
+diagnostics: 0	140	Linked in 78 ms	 
+diagnostics: 0	141	Project 'tigkynk_18f_pulse.mbppi' completed: 281 ms	 
+diagnostics: 0	103	Finished successfully: 07 Nis 2026, 13:54:35	tigkynk_18f_pulse.mbppi
