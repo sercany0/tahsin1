@@ -12,10 +12,10 @@ program tig_kaynak_1
 ' D0 = G
 '====================================================
 
-symbol LIFT       = PORTA.0
-symbol HFTIG      = PORTA.1
-symbol ikidort    = PORTD.5    ' PORTC.4 SPI1 SDI ile cakisiyordu — PORTD.5 bos pine tasindi
-symbol TETIK      = PORTE.0
+symbol TETIK      = PORTD.0    ' PORTE.0 (AN5)'ten tasindi — analog cakisma yok
+symbol LIFT       = PORTD.2    ' PORTA.0'dan tasindi — analog cakisma yok
+symbol HFTIG      = PORTD.3    ' PORTA.1'den tasindi — analog cakisma yok
+symbol ikidort    = PORTD.5
 symbol GAS        = PORTE.1
 symbol HF         = PORTE.2
 symbol IGBT_RST   = PORTC.1
@@ -1092,6 +1092,13 @@ dim mevcut_w as word
                 exit
             end if
         next a
+
+        if kaynak_izin = 0 then
+            exit
+        end if
+
+        Pwm1_Set_Duty(duty_son)
+        pid_cikis = duty_son
     else
         fark = duty_son - duty_ilk
 
@@ -1113,10 +1120,15 @@ dim mevcut_w as word
                 exit
             end if
         next a
+
+        if kaynak_izin = 0 then
+            exit
+        end if
+
+        Pwm1_Set_Duty(duty_son)
+        pid_cikis = duty_son
     end if
 
-    Pwm1_Set_Duty(duty_son)
-    pid_cikis = duty_son
 end sub
 
 '====================================================
@@ -1131,6 +1143,8 @@ dim crater_duty as byte
     for c = 1 to CRATER_SURE
         Delay_ms(10)
         if kaynak_izin = 0 then    ' acil iptal: kaynak durdurulduysa crater'dan cik
+            Pwm1_Set_Duty(0)
+            pid_cikis = 0
             exit
         end if
     next c
@@ -1184,6 +1198,10 @@ dim t as byte
     for sg_say = 1 to set4_value
         for t = 1 to 100
             Delay_ms(10)
+            if BASLATMA_VEYA_BLOK_IPTAL_VAR_MI() = 1 then
+                GAS = 0
+                exit
+            end if
         next t
     next sg_say
 
@@ -1572,8 +1590,8 @@ main:
     TRISA = %11111111
     TRISB = %00111111
     TRISC = %01000000   ' RC6 giris (TERM), RC4 SPI SDI (SPI1_Init tarafindan ayarlanir)
-    TRISD = %10100000   ' PORTD.7 (SETING) ve PORTD.5 (ikidort) giris
-    TRISE = %00000001
+    TRISD = %10101101   ' RD7=SETING, RD5=ikidort, RD3=HFTIG, RD2=LIFT, RD0=TETIK girisler
+    TRISE = %00000000   ' RE0 artik kullanilmiyor, RE1=GAS cikis, RE2=HF cikis
 
     CM1CON0 = 0
     CM2CON0 = 0
