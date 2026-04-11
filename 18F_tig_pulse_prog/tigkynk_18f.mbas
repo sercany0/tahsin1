@@ -41,7 +41,7 @@ const PID_MAX_STEP  = 3
 const PID_HATA_BANT = 40
 const PID_INTEGRAL_MAX = 3000
 
-const AKIM_ADC_MAX = 800    ' AN2 -> 200A karþýlýðý ADC deðeri
+const AKIM_ADC_MAX = 800    ' AN2 -> 200A karï¿½ï¿½lï¿½ï¿½ï¿½ ADC deï¿½eri
 
 '================= Lift TIG sabitleri ===============
 const LIFT_BASLANGIC_AKIM = 8
@@ -50,12 +50,12 @@ const LIFT_BIRAK_ESIK     = 8
 const LIFT_ARK_ONAY_ESIK  = 20
 const LIFT_TIMEOUT        = 300    ' 300 x 10ms = 3 saniye
 
-'================= Anti-Stick / Kýsa Devre ==========
-' AN8 kýsa devre algýlama için kullanýlýr
+'================= Anti-Stick / Kï¿½sa Devre ==========
+' AN8 kï¿½sa devre algï¿½lama iï¿½in kullanï¿½lï¿½r
 const KISA_DEVRE_ADC_ESIK   = 12
 const KISA_DEVRE_CIKIS_ESIK = 20
 
-' main döngüsü sonunda Delay_ms(5) olduðu için:
+' main dï¿½ngï¿½sï¿½ sonunda Delay_ms(5) olduï¿½u iï¿½in:
 ' 1 sn   = 200 x 5ms
 ' 2 sn   = 400 x 5ms
 ' 500 ms = 100 x 5ms
@@ -68,47 +68,19 @@ const ANTI_STICK_AKIM       = 10
 dim EncoderA as sbit at PORTB.5
 dim EncoderB as sbit at PORTB.4
 
-'================= Genel deðiþkenler ================
+'================= Genel deï¿½iï¿½kenler ================
 dim pid_hata as integer
 dim pid_onceki_hata as integer
-dim pid_turev as integer
 dim pid_cikis as integer
 dim olculen_akim as integer
 dim pid_integral as longint
 dim tetik_onceki as byte
 dim dortt_durum as byte
 dim kaynak_izin as byte
-dim ERR as byte
 dim prevA as byte
 dim encoderValue as integer
 dim hedef_akim as integer
-dim kisaDevre as integer
 dim dummy as byte
-dim igbt_err as integer
-dim sebekee_err as integer
-dim termik_err as integer
-dim HATA, SMP_ON as byte
-dim SEBEKE as word
-dim hata1 as byte
-dim kd as word
-dim j as byte
-dim i as word
-dim say, g as longword
-dim ko as word
-dim coll as word
-dim k, err_say as word
-dim kd_say as word
-dim disp_deger as integer
-dim an_oku, topla as word
-dim HATA_say, ortalama as byte
-dim temp_res as integer
-dim weld_akim as integer
-dim TEMPS as byte
-dim DATA1DG as byte
-dim DATA10DG as byte
-dim DATA100DG as byte
-dim kd_time as word
-dim step_value, start_value, hedef_value as integer
 
 dim set1, set1_value as byte
 dim set2, set2_value as byte
@@ -125,9 +97,6 @@ dim son_setting as byte
 dim normal_encoder_value as integer
 
 dim kaynak_basladi as byte
-dim ramp_duty as byte
-dim hedef_duty as byte
-dim hf_start_yapildi as byte
 
 dim ark_var as byte
 dim ark_esik as word
@@ -145,7 +114,7 @@ dim anti_stick_timer as word
 dim kisa_devre_adc as word
 
 dim set5_value as byte   ' frekans
-dim set6_value as byte   ' base akým
+dim set6_value as byte   ' base akï¿½m
 dim set7_value as byte   ' duty %
 dim set8_value as byte   ' pulse on/off
 
@@ -183,31 +152,6 @@ sub function mask(dim num as byte) as byte
     end select
 end sub
 '====================================================
-'sub procedure ADC_Ayar_AN2()
-'    ' PIC18F4520
-'    ' Vref = VDD/VSS
-'    ' AN0, AN1, AN2 analog
-'    ADCON1 = %00001100
-'    Delay_us(20)
-'end sub
-'====================================================
-'sub procedure ADC_Ayar_AN8()
-'    ' PIC18F4520
-'    ' Vref = VDD/VSS
-'    ' AN0..AN8 analog
-'    ADCON1 = %00000110
-'    Delay_us(20)
-'end sub
-
-'====================================================
-'sub procedure ADC_Ayar_Dijital()
-'    ' Tüm analog giriþler dijital
-'    ADCON1 = %00001111
-'    Delay_us(20)
-'end sub
-
-
-'====================================================
 sub procedure interrupt()
     if INTCON.RBIF = 1 then
         dummy = PORTB
@@ -220,50 +164,20 @@ sub procedure interrupt()
                         Inc(encoderValue)
                     end if
                 else
-                    if set1 = 1 then
-                        if encoderValue < 10 then
-                            Inc(encoderValue)
-                        end if
-                    end if
+                    dim encoder_max as word
+                    encoder_max = 0
 
-                    if set2 = 1 then
-                        if encoderValue < 20 then
-                            Inc(encoderValue)
-                        end if
-                    end if
+                    if set1 = 1 then encoder_max = 10  end if
+                    if set2 = 1 then encoder_max = 20  end if
+                    if set3 = 1 then encoder_max = 20  end if
+                    if set4 = 1 then encoder_max = 20  end if
+                    if set5 = 1 then encoder_max = 20  end if
+                    if set6 = 1 then encoder_max = 100 end if
+                    if set7 = 1 then encoder_max = 100 end if
+                    if set8 = 1 then encoder_max = 1   end if
 
-                    if set3 = 1 then
-                        if encoderValue < 20 then
-                            Inc(encoderValue)
-                        end if
-                    end if
-
-                    if set4 = 1 then
-                        if encoderValue < 20 then
-                            Inc(encoderValue)
-                        end if
-                    end if
-
-                    if set5 = 1 then
-                        if encoderValue < 20 then
-                            Inc(encoderValue)
-                        end if
-                    end if
-
-                    if set6 = 1 then
-                        if encoderValue < 100 then
-                            Inc(encoderValue)
-                        end if
-                    end if
-
-                    if set7 = 1 then
-                        if encoderValue < 100 then
-                            Inc(encoderValue)
-                        end if
-                    end if
-
-                    if set8 = 1 then
-                        if encoderValue < 1 then
+                    if encoder_max > 0 then
+                        if encoderValue < encoder_max then
                             Inc(encoderValue)
                         end if
                     end if
@@ -308,18 +222,11 @@ end sub
 
 '====================================================
 sub procedure hesapla(dim num as integer)
-dim DGT3, DGT2, DGT1 as byte
+dim DGT3, DGT2 as byte
 
-    DGT3 = (num / 100) mod 10
-    DGT3 = mask(DGT3)
-
-    DGT2 = (num / 10) mod 10
-    DGT2 = mask(DGT2)
-
-    DGT1 = num mod 10
-    DGT1 = mask(DGT1)
-
-    MAX7219_Send($01, DGT1)
+    DGT3 = mask((num / 100) mod 10)
+    DGT2 = mask((num / 10) mod 10)
+    MAX7219_Send($01, mask(num mod 10))
     MAX7219_Send($02, DGT2)
     MAX7219_Send($03, DGT3)
 end sub
@@ -383,68 +290,42 @@ sub procedure EEPROM_YUKLE()
     set2_value = EEPROM_Read($02)
     set3_value = EEPROM_Read($03)
     set4_value = EEPROM_Read($04)
-    
     set5_value = EEPROM_Read($05)
     set6_value = EEPROM_Read($06)
     set7_value = EEPROM_Read($07)
     set8_value = EEPROM_Read($08)
 
-    if set1_value = 255 then
-        set1_value = 0
-    end if
-    if set2_value = 255 then
-        set2_value = 3
-    end if
-    if set3_value = 255 then
-        set3_value = 3
-    end if
-    if set4_value = 255 then
-        set4_value = 3
-    end if
+    ' set1: crater fill akï¿½mï¿½ (0-10, default 0)
+    if set1_value = 255 then set1_value = 0  end if
+    if set1_value > 10  then set1_value = 10 end if
 
-    if set1_value > 10 then
-        set1_value = 10
-    end if
+    ' set2: ramp-up sï¿½resi (0-20, default 3)
+    if set2_value = 255 then set2_value = 3  end if
+    if set2_value > 20  then set2_value = 20 end if
 
-    if set2_value > 20 then
-        set2_value = 20
-    end if
+    ' set3: downslope sï¿½resi (0-20, default 3)
+    if set3_value = 255 then set3_value = 3  end if
+    if set3_value > 20  then set3_value = 20 end if
 
-    if set3_value > 20 then
-        set3_value = 20
-    end if
+    ' set4: post-gaz sï¿½resi (0-20, default 3)
+    if set4_value = 255 then set4_value = 3  end if
+    if set4_value > 20  then set4_value = 20 end if
 
-    if set4_value > 20 then
-        set4_value = 20
-    end if
-    
-    if set5_value = 255 then 
-       set5_value = 5 
-    end if   ' 5 Hz
-    if set6_value = 255 then 
-       set6_value = 50 
-    end if  ' base %
-    if set7_value = 255 then 
-       set7_value = 50 
-    end if  ' duty %
-    if set8_value = 255 then 
-       set8_value = 0 
-    end if   ' off
-    if set5_value > 20 then
-       set5_value = 20
-    end if
+    ' set5: pulse frekansï¿½ Hz (1-20, default 5)
+    if set5_value = 255 then set5_value = 5  end if
+    if set5_value > 20  then set5_value = 20 end if
 
-    if set6_value > 100 then
-       set6_value = 100
-    end if
+    ' set6: base akï¿½m % (0-100, default 50)
+    if set6_value = 255 then set6_value = 50  end if
+    if set6_value > 100 then set6_value = 100 end if
 
-    if set7_value > 100 then
-       set7_value = 100
-    end if
+    ' set7: duty % (0-100, default 50)
+    if set7_value = 255 then set7_value = 50  end if
+    if set7_value > 100 then set7_value = 100 end if
 
-    if set8_value > 1 then
-       set8_value = 0
-    end if
+    ' set8: pulse on/off (0-1, default 0)
+    if set8_value = 255 then set8_value = 0 end if
+    if set8_value > 1   then set8_value = 0 end if
 
 end sub
 
@@ -523,68 +404,42 @@ dim duty_temp as longint
     duty_temp = duty_temp / 190
     duty_temp = duty_temp + 30
 
-    if duty_temp < 0 then
-        duty_temp = 0
-    end if
-
-    if duty_temp > 255 then
-        duty_temp = 255
-    end if
-
     result = duty_temp
 end sub
 
 '====================================================
 sub function ADC2_ORT_OKU() as word
 dim adc_toplam as longword
-dim adc_ort as word
 dim s as byte
-dim dummy_adc as word
-
-'    ADC_Ayar_AN2()
-
-    dummy_adc = ADC_Read(2)
-    Delay_us(50)
 
     adc_toplam = 0
+    ADC_Read(2)         ' ilk okuma (settling iï¿½in at)
+    Delay_us(50)
 
     for s = 1 to 4
         adc_toplam = adc_toplam + ADC_Read(2)
         Delay_us(50)
     next s
 
-    adc_ort = adc_toplam / 4
-
-'    ADC_Ayar_Dijital()
-
-    result = adc_ort
+    result = adc_toplam / 4
 end sub
 
 '====================================================
 sub function ADC8_ORT_OKU() as word
 dim adc_toplam as longword
-dim adc_ort as word
 dim s as byte
-dim dummy_adc as word
-
-'    ADC_Ayar_AN8()
-
-    dummy_adc = ADC_Read(8)
-    Delay_us(50)
 
     adc_toplam = 0
+    ADC_Read(8)         ' ilk okuma (settling iï¿½in at)
+    Delay_us(50)
 
     for s = 1 to 4
         adc_toplam = adc_toplam + ADC_Read(8)
         Delay_us(50)
     next s
 
-    adc_ort = adc_toplam / 4
-    kisa_devre_adc = adc_ort
-
-'    ADC_Ayar_Dijital()
-
-    result = adc_ort
+    kisa_devre_adc = adc_toplam / 4
+    result = kisa_devre_adc
 end sub
 
 '====================================================
@@ -640,14 +495,10 @@ sub function AKIM_OKU() as integer
 dim adc_toplam as longword
 dim adc_ort as word
 dim s as byte
-dim dummy_adc as word
-
-'    ADC_Ayar_AN2()
-
-    dummy_adc = ADC_Read(2)
-    Delay_us(50)
 
     adc_toplam = 0
+    ADC_Read(2)         ' ilk okuma (settling iï¿½in at)
+    Delay_us(50)
 
     for s = 1 to 8
         adc_toplam = adc_toplam + ADC_Read(2)
@@ -656,9 +507,6 @@ dim dummy_adc as word
 
     adc_ort = adc_toplam / 8
     akim_adc = adc_ort
-
-'    ADC_Ayar_Dijital()
-
     result = ADC_TO_AKIM(adc_ort)
 end sub
 
@@ -679,11 +527,7 @@ end sub
 
 '====================================================
 sub function KISA_DEVRE_VAR_MI() as byte
-dim adc_now as word
-
-    adc_now = ADC8_ORT_OKU()
-
-    if adc_now <= KISA_DEVRE_ADC_ESIK then
+    if ADC8_ORT_OKU() <= KISA_DEVRE_ADC_ESIK then
         result = 1
     else
         result = 0
@@ -692,11 +536,7 @@ end sub
 
 '====================================================
 sub function KISA_DEVRE_KALKTI_MI() as byte
-dim adc_now as word
-
-    adc_now = ADC8_ORT_OKU()
-
-    if adc_now >= KISA_DEVRE_CIKIS_ESIK then
+    if ADC8_ORT_OKU() >= KISA_DEVRE_CIKIS_ESIK then
         result = 1
     else
         result = 0
@@ -707,7 +547,6 @@ end sub
 sub procedure PID_SIFIRLA()
     pid_hata = 0
     pid_onceki_hata = 0
-    pid_turev = 0
     pid_cikis = 0
     pid_integral = 0
     akim_filtreli = 0
@@ -1043,7 +882,7 @@ dim adim3_tamam as byte
         exit
     end if
 
-    '---- 2) Tungsten kaldýrýlmasýný bekle ----
+    '---- 2) Tungsten kaldï¿½rï¿½lmasï¿½nï¿½ bekle ----
     timeout_say = 0
 
     while kaynak_izin = 1
@@ -1096,7 +935,7 @@ dim adim3_tamam as byte
         exit
     end if
 
-    '---- 3) Ark oluþumunu doðrula ----
+    '---- 3) Ark oluï¿½umunu doï¿½rula ----
     timeout_say = 0
 
     while kaynak_izin = 1
@@ -1160,7 +999,7 @@ dim anti_duty as byte
 
     anti_duty = AKIM_TO_DUTY(ANTI_STICK_AKIM)
 
-    ' durum 0 = normal çalýþma
+    ' durum 0 = normal ï¿½alï¿½ï¿½ma
     if anti_stick_aktif = 0 then
 
         if KISA_DEVRE_VAR_MI() = 1 then
@@ -1171,7 +1010,7 @@ dim anti_duty as byte
             kisa_devre_say = 0
         end if
 
-        ' kýsa devre 1 saniye boyunca devam ettiyse kapat
+        ' kï¿½sa devre 1 saniye boyunca devam ettiyse kapat
         if kisa_devre_say >= KISA_DEVRE_KAPAT_SURE then
             anti_stick_aktif = 1
             anti_stick_durum = 1
@@ -1188,7 +1027,7 @@ dim anti_duty as byte
         exit
     end if
 
-    ' anti-stick aktifken kýsa devre kalktýysa normale dön
+    ' anti-stick aktifken kï¿½sa devre kalktï¿½ysa normale dï¿½n
     if KISA_DEVRE_KALKTI_MI() = 1 then
         anti_stick_aktif = 0
         anti_stick_durum = 0
@@ -1199,7 +1038,7 @@ dim anti_duty as byte
         exit
     end if
 
-    ' durum 1 = PWM kapalý, 2 saniye bekle
+    ' durum 1 = PWM kapalï¿½, 2 saniye bekle
     if anti_stick_durum = 1 then
         if anti_stick_timer < ANTI_STICK_BEKLE_SURE then
             Inc(anti_stick_timer)
@@ -1212,7 +1051,7 @@ dim anti_duty as byte
         exit
     end if
 
-    ' durum 2 = PWM 10A açýk, 500ms dene
+    ' durum 2 = PWM 10A aï¿½ï¿½k, 500ms dene
     if anti_stick_durum = 2 then
         if anti_stick_timer < ANTI_STICK_DENE_SURE then
             Inc(anti_stick_timer)
@@ -1466,7 +1305,6 @@ sub procedure PARAMETRE_IN()
                     setting_mode = 0
                     secilen_parametre = 0
                     encoderValue = normal_encoder_value
-                    disp_deger = encoderValue
                     hesapla(encoderValue)
                 end if
             end if
@@ -1627,8 +1465,8 @@ dim t as byte
     Pwm1_Start()
 
     '------------------------------------------------
-    ' PWM açýlýnca ilk iþ kýsa devre kontrolü yap
-    ' kýsa devre varsa HF açma
+    ' PWM aï¿½ï¿½lï¿½nca ilk iï¿½ kï¿½sa devre kontrolï¿½ yap
+    ' kï¿½sa devre varsa HF aï¿½ma
     '------------------------------------------------
     if KISA_DEVRE_VAR_MI() = 1 then
         HF = 0
@@ -1751,10 +1589,10 @@ main:
     
     ADCON0 = 0
     ADCON1 = 0
-    ADCON2 = %10101010   ' örnek: right justify, uygun Tad
+    ADCON2 = %10101010   ' ï¿½rnek: right justify, uygun Tad
 
-    ' AN2 = akým/PID/ark algýlama
-    ' AN8 = kýsa devre algýlama
+    ' AN2 = akï¿½m/PID/ark algï¿½lama
+    ' AN8 = kï¿½sa devre algï¿½lama
     ANSELH = 1
     ANSEL  = 4
 '    ADCON1 = %00001111
@@ -1770,11 +1608,6 @@ main:
     GAS = 0
     HF = 0
 
-    kd_say = 0
-    HATA_say = 0
-    HATA = 0
-    ERR = 0
-
     tetik_onceki = 1
     dortt_durum = 0
     kaynak_izin = 0
@@ -1782,9 +1615,6 @@ main:
     secilen_parametre = 0
     son_setting = 1
     kaynak_basladi = 0
-    ramp_duty = 0
-    hedef_duty = 0
-    hf_start_yapildi = 0
 
     ark_var = 0
     ark_esik = 60
@@ -1793,7 +1623,6 @@ main:
 
     pid_hata = 0
     pid_onceki_hata = 0
-    pid_turev = 0
     pid_cikis = 0
     olculen_akim = 0
     pid_integral = 0
@@ -1838,7 +1667,6 @@ main:
         if setting_mode = 0 then
             hedef_akim = encoderValue
             TIG_BASLAT()
-            disp_deger = encoderValue
             hesapla(encoderValue)
         end if
 
